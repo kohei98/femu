@@ -1,0 +1,7 @@
+*.cdl
+*.nes.ram.nl
+log.log
+*.o
+result.txt
+.vscode/
+a.out.dSYM/
