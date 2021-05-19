@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
                 exit(1);
             if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP)
             {
-                std::cout << "keyup!!!!" << std::endl;
+                // std::cout << "keyup!!!!" << std::endl;
                 cpu.pad_ope(&ev);
             }
         }

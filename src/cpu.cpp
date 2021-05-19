@@ -30,7 +30,7 @@ uint8_t CPU::zipP()
 
 void CPU::unzipP(uint8_t binary_P)
 {
-    CPUregisters.P = {false, false, false, false, false, false, false, false};
+    CPUregisters.P = {false, false, true, false, false, false, false, false};
     if ((binary_P >> 0) & 0x1)
         CPUregisters.P.Carry = true;
     if ((binary_P >> 1) & 0x1)
@@ -117,10 +117,11 @@ uint16_t CPU::fetchOpeland(addressingMode mode)
     }
     case preIndexedIndirect:
     {
-        uint8_t addr1 = CPU::fetch() + CPUregisters.X;
+        uint16_t addr1 = 0x00FF & (CPU::fetch() + CPUregisters.X);
+        printf("%4x %4x\n", addr1, ramread(addr1));
         uint8_t addr1data = ramread(addr1);
-
-        uint16_t addr = (ramread(addr1 + 1) << 8) + ramread(addr1);
+        printf("%4x %4x\n", addr1 + 1, ramread(0x00FF & (addr1 + 1)));
+        uint16_t addr = ((ramread((addr1 + 1) & 0x00FF) & 0xFF) << 8) | addr1data;
         return addr;
     }
     case postIndexedIndirect:
@@ -133,7 +134,7 @@ uint16_t CPU::fetchOpeland(addressingMode mode)
     case indirectAbsolute:
     {
         uint16_t addr1 = CPU::fetch() + (CPU::fetch() << 8);
-        uint16_t addr = ramread(addr1) + (ramread(addr1 + 1) << 8);
+        uint16_t addr = ramread(addr1) + (ramread(addr1 & 0xFF00 | ((addr1 + 1) & 0x00FF)) << 8);
         return addr;
     }
     }
@@ -234,7 +235,7 @@ void CPU::exec(baseName &basename, uint16_t opeland, addressingMode &mode)
     case PLP:
     {
         CPUregisters.S++;
-        uint8_t binary_P = ramread(CPUregisters.S) & ~(1 << 4) | (1 << 5); //breakflagはクリアしておく
+        uint8_t binary_P = (ramread(CPUregisters.S) & ~(1 << 4)) | (1 << 5); //breakflagはクリアしておく
         unzipP(binary_P);
         break;
     }
@@ -413,23 +414,24 @@ void CPU::exec(baseName &basename, uint16_t opeland, addressingMode &mode)
     {
         if (mode == accumulator)
         {
-            CPUregisters.A = (CPUregisters.A) << 1;
-            CPUregisters.A |= CPUregisters.P.Carry;
+            uint8_t argment = CPUregisters.A << 1;
+            argment |= CPUregisters.P.Carry;
             CPUregisters.P.Carry = (CPUregisters.A >> 7) & 1;
-            CPUregisters.P.Negative = (CPUregisters.A & 0x80);
-            CPUregisters.P.Zero = (CPUregisters.A == 0);
+            CPUregisters.P.Negative = (argment & 0x80);
+            CPUregisters.P.Zero = (argment == 0);
+            CPUregisters.A = argment;
         }
         else
         {
             uint8_t argment = ramread(opeland);
             printf("%4x\n", argment);
-            argment = argment << 1;
-            argment |= CPUregisters.P.Carry;
+            uint8_t write_argment = argment << 1;
+            write_argment |= CPUregisters.P.Carry;
             CPUregisters.P.Carry = (argment >> 7) & 1;
-            CPUregisters.P.Negative = (argment & 0x80);
-            CPUregisters.P.Zero = (argment == 0);
+            CPUregisters.P.Negative = (write_argment & 0x80);
+            CPUregisters.P.Zero = (write_argment == 0);
             printf("%4x\n", argment);
-            ramwrite(opeland, argment);
+            ramwrite(opeland, write_argment);
         }
         break;
     }
@@ -437,21 +439,22 @@ void CPU::exec(baseName &basename, uint16_t opeland, addressingMode &mode)
     {
         if (mode == accumulator)
         {
-            CPUregisters.A = (CPUregisters.A) >> 1;
-            CPUregisters.A |= CPUregisters.P.Carry;
+            uint8_t argment = CPUregisters.A >> 1;
+            argment |= (CPUregisters.P.Carry << 7);
             CPUregisters.P.Carry = (CPUregisters.A >> 0) & 1;
-            CPUregisters.P.Negative = (CPUregisters.A & 0x80);
-            CPUregisters.P.Zero = (CPUregisters.A == 0);
+            CPUregisters.P.Negative = (argment & 0x80);
+            CPUregisters.P.Zero = (argment == 0);
+            CPUregisters.A = argment;
         }
         else
         {
             uint8_t argment = ramread(opeland);
-            argment = argment >> 1;
-            argment |= CPUregisters.P.Carry;
+            uint8_t write_argment = argment >> 1;
+            write_argment |= (CPUregisters.P.Carry << 7);
             CPUregisters.P.Carry = (argment >> 0) & 1;
-            CPUregisters.P.Negative = (argment & 0x80);
-            CPUregisters.P.Zero = (argment == 0);
-            ramwrite(opeland, argment);
+            CPUregisters.P.Negative = (write_argment & 0x80);
+            CPUregisters.P.Zero = (write_argment == 0);
+            ramwrite(opeland, write_argment);
         }
         break;
     }
@@ -679,6 +682,10 @@ uint8_t CPU::ramread(uint16_t address)
 }
 void CPU::ramwrite(uint16_t address, u_int8_t data)
 {
+    if (address == 0x0100)
+    {
+        printf("0x0100\n");
+    }
     if (address == 0x2000)
     {
         PPUregister.ppuctrl = data;
@@ -733,7 +740,10 @@ void CPU::ramwrite(uint16_t address, u_int8_t data)
     if (address == 0x4014)
     { //DMA
     }
-
+    if (address >= 0x800 && address <= 0x1fff)
+    {
+        ramwrite(address - 0x800, data);
+    }
     *(RAM + address) = data;
     return;
 }
@@ -743,7 +753,7 @@ uint8_t CPU::run()
     printf("=======\n");
     uint8_t prev_code = ramread(CPUregisters.PC);
     printf("opecode :%2x\n", prev_code);
-    print();
+    // print();
     const uint8_t opecode = CPU::fetch();
     // cout << opecode << endl;
     // printf("%4x\n", opecode);
@@ -757,7 +767,6 @@ uint8_t CPU::run()
 
     uint16_t opeland = fetchOpeland(mode);
     cout << dictionary[opecode];
-    printf("%4x A:%4x\n", opeland, CPUregisters.A);
     // printf("%d\n", CPUregisters.P.Negative);
     exec(basename, opeland, mode);
     return cycle;
@@ -766,6 +775,10 @@ uint8_t CPU::run()
 void CPU::print()
 {
     printf("A:%4x,X:%4x, Y:%4x, ,P:%4x, PC:%4x, SP:%4x\n", CPUregisters.A, CPUregisters.X, CPUregisters.Y, zipP(), CPUregisters.PC, CPUregisters.S);
+    if (!CPUregisters.P.Resersved)
+    {
+        printf("reserved is false!!!\n");
+    }
     return;
 }
 
