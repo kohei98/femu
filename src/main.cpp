@@ -64,26 +64,28 @@ int main(int argc, char *argv[])
         }
         uint8_t cpu_cycle = cpu.run();
         int render_line = cpu.ppurun(3 * cpu_cycle);
-        if (render_line == 241 && i >= 1 && !cpu.nmi_flag && ((cpu.PPUregister.ppuctrl >> 7) & 1))
+        if (render_line == 241 && cpu.hblank_flag)
         {
-            printf("render_line:%d\n", render_line);
-            cpu.nmi_flag = 1;
-            cpu.NMI();
-            cpu.PPUregister.ppustatus |= (1 << 7);
+            printf("callnmi\n");
+            // printf("render_line:%d\n", render_line);
+            if (!cpu.nmi_flag)
+            {
+                cpu.PPUregister.ppustatus |= (1 << 7);
+                if (((cpu.PPUregister.ppuctrl >> 7) & 1) && !cpu.nmi_flag)
+                {
+                    cpu.NMI();
+                    cpu.nmi_flag = 1;
+                }
+            }
         }
         else if (render_line == 262)
         {
-            cpu.PPUregister.ppustatus |= (1 << 7);
-
-            if (i < 1)
-            {
-                printf("init ppustatus\n");
-            }
             if (i >= 1)
-            {
-                // SDL_Delay(16.6);
-                cpu.nmi_flag = false;
-            }
+                cpu.show_window();
+            cpu.PPUregister.ppustatus &= ~(1 << 7);
+            cpu.nmi_flag = 0;
+            // cpu.nmi_flag = false;
+            // cpu.PPUregister.ppuctrl &= ~(1 << 7);
             i++;
         }
     }

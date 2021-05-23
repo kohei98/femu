@@ -1,4 +1,4 @@
-; giko016.asm
+; ./giko016.asm
 isCrash                          = $8195
 NOTHINGdown                      = $8181
 Start                            = $8000

@@ -37,6 +37,7 @@ public:
     uint8_t *VRAM;
     uint8_t *SP_RAM;
     bool nmi_flag;
+    bool hblank_flag;
     std::vector<std::vector<uint8_t>> sp_data;
     std::vector<std::vector<tileinfo>> background;
     PPU();
@@ -57,4 +58,5 @@ public:
     void get_splite(uint8_t name_table);
     void get_splite_sp(uint8_t name_table);
     void show_window();
+    void exec_dma(uint8_t data);
 };

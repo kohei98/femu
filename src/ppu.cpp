@@ -3,7 +3,7 @@
 
 PPU::PPU()
 {
-    PPUregister = {0, 0, 1 << 7, 0, 0, 0, 0, 0};
+    PPUregister = {0x10, 0, 0x00, 0, 0, 0, 0, 0};
     oamaddr_buffer = 0;
     ppuaddr_buffer = 0;
     ppuaddr_flag = 0;
@@ -13,9 +13,10 @@ PPU::PPU()
     RAM = (uint8_t *)malloc(sizeof(uint8_t) * 0xFFFF);
     VRAM = (uint8_t *)malloc(sizeof(uint8_t) * 0xFFFF);
     SP_RAM = (uint8_t *)calloc((1 << 8), sizeof(uint8_t));
-    memset(SP_RAM, 0x20, (1 << 8));
+    memset(SP_RAM, 0xFF, (1 << 8));
     sp_data.resize(2, std::vector<uint8_t>(8));
     nmi_flag = false;
+    hblank_flag = false;
 }
 uint8_t PPU::vramread(uint16_t address)
 {
@@ -36,8 +37,23 @@ uint8_t PPU::vramread_cpu(uint16_t address)
     {
         uint8_t status = (PPUregister.ppustatus);
         PPUregister.ppustatus &= ~(1 << 7);
+
         return status;
     }
+    if (address == 0x0007)
+    {
+        uint8_t data = PPUregister.ppudata;
+        // printf("2006:%4x\n", PPUregister.ppuaddr);
+        PPUregister.ppudata = *(VRAM + (PPUregister.ppuaddr)); //バッファに格納
+        if ((PPUregister.ppuctrl >> 2) & 1)
+            PPUregister.ppuaddr += 32;
+        else
+        {
+            PPUregister.ppuaddr++;
+        }
+        return data; //送るのは一つ前のデータ
+    }
+
     // printf("vramread: %d\n", VRAM + PPUregister.ppuaddr);
     return *(VRAM + (PPUregister.ppuaddr));
 }
@@ -50,7 +66,8 @@ void PPU::vramwrite(uint16_t address, uint8_t data)
     }
     if (address == 0x2007)
     {
-        *(VRAM + PPUregister.ppuaddr) = data;
+        // printf("2006:%4x\n", PPUregister.ppuaddr);
+        *(VRAM + (PPUregister.ppuaddr)) = data;
         if ((PPUregister.ppuctrl >> 2) & 1)
             PPUregister.ppuaddr += 32;
         else
@@ -63,8 +80,6 @@ void PPU::vramwrite(uint16_t address, uint8_t data)
         *(SP_RAM + PPUregister.oamaddr) = data;
         PPUregister.oamaddr++;
     }
-    // printf("vramwrite: address:%4x, data:%4x\n", PPUregister.ppuaddr, *(VRAM + PPUregister.ppuaddr));
-    //ここは0x0002の値によって変わるらしい．とりあえずインクリメントは固定値
 
     return;
 }
@@ -76,6 +91,7 @@ int PPU::ppurun(uint8_t cpu_cycle)
     //1ライン分のサイクルが溜まったとき
     if (ppu_cycle >= 341)
     {
+        hblank_flag = true;
         ppu_cycle -= 341;
         ppu_line++;
         // printf("%d, %d\n", ppu_line, ppu_cycle);
@@ -86,14 +102,16 @@ int PPU::ppurun(uint8_t cpu_cycle)
         else if (ppu_line == 262)
         {
             render_splite();
-            show_background();
             // show_background();
-            show_window();
-            // SDL_Delay(3000);
+            // show_window();
             // render_background();
             ppu_line = 0;
             return 262;
         }
+    }
+    else
+    {
+        hblank_flag = false;
     }
     return ppu_line;
 }
@@ -116,10 +134,10 @@ void PPU::buildtile(uint8_t X, uint8_t Y)
     background[X][Y].name_table_id = name_table;
     background[X][Y].element_table_id = element_table;
     setpixelcolor(X, Y, sp_data, element_table);
-    if (0x2000 + 32 * Y + X == 0x21c9)
-    {
-        show_background();
-    }
+    // if (0x2000 + 32 * Y + X == 0x21c9)
+    // {
+    //     show_background();
+    // }
     // if (0x2000 + 32 * Y + X == 0x21c9)
     // printf("4x, %4x\n", name_table_id, element_table_id);
     return;
@@ -144,20 +162,24 @@ uint8_t PPU::get_nametable(uint8_t x, uint8_t y)
 
 uint8_t PPU::get_elementtable(uint8_t x, uint8_t y)
 {
-    return vramread(0x23c0 + x / 2 + 16 * (y / 2));
+    return vramread(0x23c0 + (x / 4) + (8 * (y / 4)));
 }
 
 void PPU::get_splite(uint8_t name_table)
 {
-    // std::vector<std::vector<uint8_t>> a(2, std::vector<uint8_t>(8));
+    uint16_t ofs = 0;
+    if ((PPUregister.ppuctrl >> 4) & 1)
+    {
+        ofs = 0x1000;
+    }
     for (int i = 0; i < 2; i++)
     {
         for (int j = 0; j < 8; j++)
         {
-            sp_data[i][j] = vramread((16 * name_table) + 8 * i + j);
+            sp_data[i][j] = vramread(ofs + (16 * name_table) + 8 * i + j);
             if (sp_data[i][j] != 0)
             {
-                printf("read: %d,%d => %d", i, j, sp_data[i][j]);
+                // printf("read: %d,%d => %d\n", i, j, sp_data[i][j]);
             }
         }
     }
@@ -166,11 +188,16 @@ void PPU::get_splite(uint8_t name_table)
 
 void PPU::get_splite_sp(uint8_t name_table)
 {
+    uint16_t ofs = 0;
+    if ((PPUregister.ppuctrl >> 3) & 1)
+    {
+        ofs = 0x1000;
+    }
     for (int i = 0; i < 2; i++)
     {
         for (int j = 0; j < 8; j++)
         {
-            sp_data[i][j] = vramread(0x1000 + (16 * name_table) + 8 * i + j);
+            sp_data[i][j] = vramread(ofs + (16 * name_table) + 8 * i + j);
             // if (sp_data[i][j] != 0)
             // {
             //     printf("read: %d,%d => %d", i, j, sp_data[i][j]);
@@ -182,13 +209,9 @@ void PPU::get_splite_sp(uint8_t name_table)
 
 void PPU::show_window()
 {
-    printf("call show_window\n");
-
-    // SDL_SetRenderDrawColor(render, 255, 0, 0, 255);
-    // SDL_RenderDrawLine(render, 10, 10, 400, 400);
+    // printf("call show_window\n");
     SDL_UpdateWindowSurface(window);
     SDL_RenderPresent(render);
-    PPUregister.ppustatus &= (~(1 << 7));
 }
 
 void PPU::get_bg_palette()
@@ -197,10 +220,12 @@ void PPU::get_bg_palette()
     {
         for (int j = 0; j < 4; j++)
         {
+            // printf("%4x\n", vramread(0x3f00 + 4 * i + j));
+            // printf("%4x\n", 0x3f00 + 4 * i + j);
             bg_palette[i][j] = color[vramread(0x3f00 + 4 * i + j)];
-            if (j == 0 && i != 0)
+            if (j == 0)
             {
-                bg_palette[i][j] = color[vramread(0x3f00)];
+                bg_palette[i][j] = color[vramread(0x3f00 + j + 0x0010)];
             }
             // printf("i:%d,j:%d,color:%6x\n", i, j, bg_palette[i][j]);
         }
@@ -216,7 +241,7 @@ void PPU::get_sp_palette()
             sp_palette[i][j] = color[vramread(0x3f10 + 4 * i + j)];
             if (j == 0)
             {
-                sp_palette[i][j] = color[vramread(0x3f00 + 4 * i)];
+                sp_palette[i][j] = color[vramread(0x3f00)];
             }
         }
     }
@@ -231,13 +256,13 @@ void PPU::render_splite()
         uint8_t y = sp_ramread(i);
         get_splite_sp(sp_ramread(i + 1));
         uint8_t sp_type = sp_ramread(i + 2);
-        printf("x:%4x,y:%4xsplite:%4x\n", x, y, sp_ramread(i + 1));
+        // printf("x:%4x,y:%4xsplite:%4x\n", x, y, sp_ramread(i + 1));
 
         // exit(1);
         if (!((sp_type >> 5) & 1))
         {
-            PPUregister.ppustatus |= 1 << 6;
-            sp_setpixelcolor(x, y, sp_data);
+            // PPUregister.ppustatus |= 1 << 6;
+            sp_setpixelcolor(x, y, sp_data, sp_type);
         }
     }
 }
@@ -245,4 +270,14 @@ void PPU::render_splite()
 uint8_t PPU::sp_ramread(uint8_t address)
 {
     return *(SP_RAM + address);
+}
+
+void PPU::exec_dma(uint8_t data)
+{
+    for (uint16_t i = 0; i < 256; i++)
+    {
+        uint8_t dma_data = *(RAM + ((data << 8) & 0xFF00) + i);
+        *(SP_RAM + i) = dma_data;
+    }
+    return;
 }

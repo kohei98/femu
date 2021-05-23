@@ -11,7 +11,7 @@ public:
     screen();
 
     void setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t element_table); //ピクセルを着色
-    void sp_setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data);                     //ピクセルを着色
+    void sp_setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t sp_type);    //ピクセルを着色
 };
 
 static const uint32_t color[64] =
