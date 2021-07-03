@@ -7,3 +7,4 @@ result.txt
 a.out.dSYM/
 mario.nes
 donkey.nes
+*.dbg

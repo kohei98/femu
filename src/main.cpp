@@ -1,9 +1,4 @@
-// #include <bits/stdc++.h>
-// #include <stdio.h>
 #include "cpu.hpp"
-// #include "render.hpp"
-// #include <SDL.h>
-// #include <iostream>
 
 int printerr()
 {
