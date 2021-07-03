@@ -1,4 +1,5 @@
 *.cdl
+*.nes
 *.nes.ram.nl
 log.log
 *.o
@@ -11,4 +12,3 @@ donkey.nes
 *.json
 giko011
 giko*
-*.nes
