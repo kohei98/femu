@@ -1,18 +1,17 @@
 // #include <bits/stdc++.h>
-#include "ppu.hpp"
 #include "pad.hpp"
+#include "ppu.hpp"
 // #include "opecodeList.hpp"
 // #include <stdint.h>
-#include <vector>
+#include <cstring>
+#include <iostream>
 #include <map>
 #include <string>
-#include <iostream>
-#include <cstring>
+#include <vector>
 
 using namespace std;
 
-struct cpustatus
-{
+struct cpustatus {
     bool Negative;
     bool Overflow;
     bool Resersved;
@@ -23,18 +22,16 @@ struct cpustatus
     bool Carry;
 };
 
-struct Registers
-{
-    uint8_t A;   //アキュムレータ
-    uint8_t X;   //インデックスレジスタ
-    uint8_t Y;   //インデックスレジスタ
-    uint16_t S;  //スタックポインタ
-    cpustatus P; // ステータスレジスタ
-    uint16_t PC; //プログラムカウンタ
+struct Registers {
+    uint8_t A;    //アキュムレータ
+    uint8_t X;    //インデックスレジスタ
+    uint8_t Y;    //インデックスレジスタ
+    uint16_t S;   //スタックポインタ
+    cpustatus P;  // ステータスレジスタ
+    uint16_t PC;  //プログラムカウンタ
 };
 
-enum addressingMode
-{
+enum addressingMode {
     zeroPage,
     relative,
     implied,
@@ -45,13 +42,12 @@ enum addressingMode
     zeroPageY,
     absoluteX,
     absoluteY,
-    preIndexedIndirect,  //indexed indirectaddressing
-    postIndexedIndirect, //indirect indexed addressing
+    preIndexedIndirect,   // indexed indirectaddressing
+    postIndexedIndirect,  // indirect indexed addressing
     indirectAbsolute
 };
 
-enum baseName
-{
+enum baseName {
     LDA,
     LDX,
     LDY,
@@ -110,8 +106,7 @@ enum baseName
     CLD
 };
 
-struct opecodestructure
-{
+struct opecodestructure {
     baseName basename;
     addressingMode mode;
     uint8_t cycle;
@@ -441,11 +436,10 @@ static map<uint8_t, string> dictionary = {
     {0xF8, "SED"},
     {0xD8, "CLD"}};
 
-class CPU : public PPU, public pad
-{
+class CPU : public PPU, public pad {
     Registers CPUregisters;
 
-public:
+   public:
     CPU();
     uint8_t zipP();
     void unzipP(uint8_t binary_P);
@@ -460,5 +454,7 @@ public:
     void print();
     void NMI();
     void IRQ();
+    void memdump();
+
     // operation(uint8_t opecode);
 };
