@@ -11,12 +11,12 @@ const int HEADER_SIZE = 16;
 int main(int argc, char *argv[]) {
     fpos_t ft;
     FILE *f = fopen(argv[1], "r");
-    fseek(f, 0, SEEK_END);  //ファイルポインタの末尾を指す．(ファイルサイズがわかる)
+    fseek(f, 0, SEEK_END);  // ファイルポインタの末尾を指す．(ファイルサイズがわかる)
     fgetpos(f, &ft);
     uint8_t *s = (uint8_t *)malloc(ft * sizeof(uint8_t));  // uint8_t は1byte
     if (s == NULL)
         printerr();
-    rewind(f);  //ファイルポインタを先頭に戻す
+    rewind(f);  // ファイルポインタを先頭に戻す
     fread(s, sizeof(uint8_t), ft, f);
     // cout << sizeof(s) * ft << endl;
     int programROMpages = s[4];
@@ -60,20 +60,25 @@ int main(int argc, char *argv[]) {
         uint8_t cpu_cycle = cpu.run();
         int render_line = cpu.ppurun(3 * cpu_cycle);
         clock_t end = clock();
-        if (render_line == 241 && cpu.hblank_flag && static_cast<double>(end - start) / CLOCKS_PER_SEC * 1000.0 >= 20.0) {
-            cpu.PPUregister.ppustatus |= (1 << 7);
+        if (render_line == 241 && cpu.hblank_flag) {
+            cpu.PPUregister.ppustatus |= (1 << 7);  // set Vblank
+            // cpu.PPUregister.ppustatus &= 0x9F;
+            if (i >= 1) {
+                // clock_t s_cpu = clock();
+                cpu.show_window();
+                // clock_t e_cpu = clock();
+                // printf("time for 1cpu_cycle : %f\n", static_cast<double>(e_cpu - s_cpu) / CLOCKS_PER_SEC);
+            }
             if (!cpu.nmi_flag) {
                 if (((cpu.PPUregister.ppuctrl >> 7) & 1) && !cpu.nmi_flag) {
                     cpu.NMI();
                     cpu.nmi_flag = 1;
                 }
             }
-        } else if (render_line == 262) {
-            if (i >= 1) {
-                cpu.show_window();
-            }
+        } else if (render_line == 261) {
+            // printf("time for 1frame : %f\n", static_cast<double>(end - start) / CLOCKS_PER_SEC);
             cpu.nmi_flag = 0;
-            cpu.PPUregister.ppustatus &= 0x8F;
+            cpu.PPUregister.ppustatus &= 0x3F;
             time_reset = true;
             i++;
         }

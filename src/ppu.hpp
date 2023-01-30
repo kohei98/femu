@@ -52,10 +52,15 @@ class PPU {
     void vramwrite(uint16_t address, uint8_t data);
     int ppurun(uint8_t cpu_cycle);
     void buildbackground(uint8_t Y);
+    void buildbackground_from_pixel(uint16_t y);
     void buildtile(uint8_t X, uint8_t Y);
     void buildtile_pixel(uint8_t x, uint8_t y);
+    void buildtable_from_pixel(uint16_t x, uint16_t y);
     void show_background();
     void render_splite();
+    void check_splite_hit(uint8_t x, uint8_t y);
+    uint8_t get_color_id(uint16_t x, uint16_t y, uint8_t sp_table_id);
+    uint8_t get_palette_id(uint16_t x, uint16_t y);
     // void render_background();
     uint8_t get_elementtable(uint8_t x, uint8_t y);
     uint8_t get_nametable(uint8_t x, uint8_t y);
@@ -73,8 +78,8 @@ class PPU {
     uint32_t bg_palette[4][4];
     uint32_t sp_palette[4][4];
 
-    void setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t element_table);  //ピクセルを着色
-    void sp_setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t sp_type);     //ピクセルを着色
+    void setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t element_table);  // ピクセルを着色
+    void sp_setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t sp_type);     // ピクセルを着色
 };
 
 static const uint32_t color[64] = {

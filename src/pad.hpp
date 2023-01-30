@@ -1,8 +1,7 @@
 // #include "screen.hpp"
 #include <SDL.h>
-class pad
-{
-public:
+class pad {
+   public:
     uint8_t pad_key_select;
     uint8_t pad_init_flag;
     uint8_t pad_register;

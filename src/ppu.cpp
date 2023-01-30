@@ -1,5 +1,7 @@
 #include "ppu.hpp"
 
+#include <time.h>
+
 #include <iostream>
 
 PPU::PPU() {
@@ -39,19 +41,21 @@ uint8_t PPU::vramread_cpu(uint16_t address) {
     if (address == 0x0002) {
         uint8_t status = (PPUregister.ppustatus);
         PPUregister.ppustatus &= ~(1 << 7);
+        PPUregister.ppuaddr = 0;
+        PPUregister.ppuscroll = 0;
 
         return status;
     }
     if (address == 0x0007) {
         uint8_t data = PPUregister.ppudata;
         // printf("2006:%4x\n", PPUregister.ppuaddr);
-        PPUregister.ppudata = *(VRAM + (PPUregister.ppuaddr));  //バッファに格納
+        PPUregister.ppudata = *(VRAM + (PPUregister.ppuaddr));  // バッファに格納
         if ((PPUregister.ppuctrl >> 2) & 1)
             PPUregister.ppuaddr += 32;
         else {
             PPUregister.ppuaddr++;
         }
-        return data;  //送るのは一つ前のデータ
+        return data;  // 送るのは一つ前のデータ
     }
 
     // printf("vramread: %d\n", VRAM + PPUregister.ppuaddr);
@@ -104,19 +108,22 @@ int PPU::ppurun(uint8_t cpu_cycle) {
         ppu_cycle -= 341;
         ppu_line++;
 
-        if (int(sp_ramread(0) + 8)) {
-            PPUregister.ppustatus |= 1 << 6;
-        }
+        // if (int(sp_ramread(0) + 8)) {
+        //     PPUregister.ppustatus |= 1 << 6;
+        // }
 
         // printf("%d, %d\n", ppu_line, ppu_cycle);
         if (ppu_line <= 240 && ppu_line % 8 == 0) {  // 1ラインを描画
-
-            buildbackground(ppu_line / 8 - 1);  // y座標のラインを描画
+            // clock_t start = clock();
+            buildbackground_from_pixel(ppu_line - 8);  // y座標のラインを描画
+            // clock_t end = clock();
+            // printf("time for 1line : %f\n", static_cast<double>(end - start) / CLOCKS_PER_SEC);
         }
-        if (ppu_line == 262) {
+        if (ppu_line == 241)
             render_splite();
+        if (ppu_line == 262) {
             ppu_line = 0;
-            PPUregister.ppustatus &= (0xBF);
+            PPUregister.ppustatus = 0;
             return 262;
         }
     } else {
@@ -124,23 +131,85 @@ int PPU::ppurun(uint8_t cpu_cycle) {
     }
     return ppu_line;
 }
-
-void PPU::buildbackground(uint8_t Y) {
+void PPU::buildbackground_from_pixel(uint16_t y) {
     get_bg_palette();
     get_sp_palette();
-    for (uint8_t X = 0; X < 32; X++) {
-        buildtile(X, Y);
+    for (uint16_t i = 0; i < 8; i++) {
+        for (uint16_t x = 0; x < 256; x++) {
+            buildtable_from_pixel(x, y + i);  // 座標から使うnametableとelementtableを決定
+            if (!(PPUregister.ppuctrl >> 6 & 1)) {
+                check_splite_hit(x, y + i);
+            }
+        }
     }
-}
-void PPU::buildtile(uint8_t X, uint8_t Y) {
-    // printf("==============\n");
-    uint8_t name_table = get_nametable(X, Y);
-    uint8_t element_table = get_elementtable(X, Y);
-    get_splite(name_table);
-    background[X][Y].name_table_id = name_table;
-    background[X][Y].element_table_id = element_table;
-    setpixelcolor(X, Y, sp_data, element_table);
     return;
+}
+
+void PPU::buildtable_from_pixel(uint16_t x, uint16_t y) {
+    uint16_t x_scr = x;  // スクロールを加味したx座標
+    if (PPUregister.ppustatus >> 6 & 1) {
+        x_scr = x + x_scroll;
+    }
+    uint8_t window = PPUregister.ppuctrl & 0x03;
+    uint8_t sp_table_id;
+    // NameTableの範囲からsp_tableのidを決定
+    if (window) {
+        if (x_scr > 255)
+            sp_table_id = vramread(0x2000 + 32 * (y / 8) + (x_scr - 256) / 8);
+        else
+            sp_table_id = vramread(0x2400 + 32 * (y / 8) + (x_scr) / 8);
+    } else {
+        if (x_scr > 255)
+            sp_table_id = vramread(0x2400 + 32 * (y / 8) + (x_scr - 256) / 8);
+        else
+            sp_table_id = vramread(0x2000 + 32 * (y / 8) + (x_scr % 256) / 8);
+    }
+    // sp_table_idとx,yから使うパレット中のidを決定
+    uint8_t color_id = get_color_id(x_scr, y, sp_table_id);
+    // 使うパレットのidを決定
+    uint8_t palette_id = get_palette_id(x_scr, y);
+
+    // 着色
+    uint32_t *pixels = (uint32_t *)ScreenSurface->pixels;
+    pixels[x + 256 * y] = bg_palette[palette_id][color_id];
+}
+
+uint8_t PPU::get_color_id(uint16_t x, uint16_t y, uint8_t sp_table_id) {
+    uint16_t ofs = 0;
+    if ((PPUregister.ppuctrl >> 4) & 1) {
+        ofs = 0x1000;
+    }
+
+    uint16_t relative_x = x % 8;
+    uint16_t relative_y = y % 8;
+    uint8_t sp_data_low_line = vramread(ofs + (16 * sp_table_id) + relative_y);
+    uint8_t sp_data_high_line = vramread(ofs + (16 * sp_table_id) + 8 + relative_y);
+    uint8_t color_id = (((sp_data_high_line >> (8 - relative_x - 1)) & 1) << 1) |
+                       ((sp_data_low_line >> (8 - relative_x - 1)) & 1);
+    // printf("%d", color_id);
+    return color_id;
+}
+
+uint8_t PPU::get_palette_id(uint16_t x, uint16_t y) {
+    uint8_t palette;
+    int8_t window = PPUregister.ppuctrl & 0x03;
+
+    if (window) {
+        if (x > 256)
+            palette = vramread(0x23c0 + ((x - 256) / 32) + 8 * (y / 32));
+        else
+            palette = vramread(0x27c0 + ((x % 256) / 32) + 8 * (y / 32));
+    } else {
+        if (x > 256)
+            palette = vramread(0x27c0 + ((x - 256) / 32) + 8 * (y / 32));
+        else
+            palette = vramread(0x23c0 + ((x % 256) / 32) + 8 * (y / 32));
+    }
+    uint16_t relative_x = (x % 32) / 16;
+    uint16_t relative_y = (y % 32) / 16;
+    uint16_t p_shift = relative_x | (relative_y << 1);
+    // printf("x : %d, y : %d, p_shift : %d p_id : %d\n", x, y, p_shift, (palette >> (p_shift * 2)) & ((1 << 2) - 1));
+    return (palette >> (p_shift * 2)) & ((1 << 2) - 1);
 }
 
 void PPU::show_background() {
@@ -150,49 +219,6 @@ void PPU::show_background() {
         }
         printf("\n");
     }
-}
-
-uint8_t PPU::get_nametable(uint8_t x, uint8_t y) {
-    uint8_t window = PPUregister.ppuctrl & 0x03;
-    // if (x_scroll > 0) printf("%u\n", x_scroll);
-    uint16_t new_x = x * 8 + x_scroll;
-    if (window & 1) new_x += 256;
-    // printf("x : %u y : %u\n", new_x, y);
-    if (new_x >= 256 && new_x < 2 * 256) {
-        return vramread(0x2400 + 32 * y + (new_x - 256) / 8);
-    }
-    new_x /= 8;
-    new_x %= (256 / 8 * 2);
-    return vramread(0x2000 + 32 * y + new_x);
-}
-
-uint8_t PPU::get_elementtable(uint8_t x, uint8_t y) {
-    uint8_t window = PPUregister.ppuctrl & 0x03;
-    uint16_t new_x = x * 8 + x_scroll;
-    if (window & 1) new_x += 256;
-
-    if (new_x >= 256 && new_x < 2 * 256) {
-        return vramread(0x27c0 + ((new_x - 256) / 8) / 4 + (8 * (y / 4)));
-    }
-    new_x /= 8;
-    new_x %= (256 / 8 * 2);
-    return vramread(0x23c0 + (new_x / 4) + (8 * (y / 4)));
-}
-
-void PPU::get_splite(uint8_t name_table) {
-    uint16_t ofs = 0;
-    if ((PPUregister.ppuctrl >> 4) & 1) {
-        ofs = 0x1000;
-    }
-    for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < 8; j++) {
-            sp_data[i][j] = vramread(ofs + (16 * name_table) + 8 * i + j);
-            if (sp_data[i][j] != 0) {
-                // printf("read: %d,%d => %d\n", i, j, sp_data[i][j]);
-            }
-        }
-    }
-    return;
 }
 
 void PPU::get_splite_sp(uint8_t name_table) {
@@ -211,13 +237,13 @@ void PPU::get_splite_sp(uint8_t name_table) {
 void PPU::show_window() {
     // printf("call show_window\n");
     SDL_UpdateWindowSurface(window);
-    SDL_RenderPresent(render);
+    // SDL_RenderPresent(render);
 }
 
 void PPU::get_bg_palette() {
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
-            if (j == 0) {
+            if (j == 0) {  // 各パレットの色0は透明色
                 bg_palette[i][j] = color[vramread(0x3f00)];
             } else
                 bg_palette[i][j] = color[vramread(0x3f00 + 4 * i + j)];
@@ -243,7 +269,7 @@ void PPU::render_splite() {
         get_splite_sp(index);
         uint8_t sp_type = sp_ramread(i + 2);
 
-        if (!((sp_type >> 5) & 1)) {  //スプライトを優先描画する場合
+        if (!((sp_type >> 5) & 1)) {  // スプライトを優先描画する場合
             // // printf("index %x\n", index);
             // // printf("x:%u,y:%usplite:%4x\n", x, y, sp_ramread(i + 1));
             // if (index == 0) {
@@ -251,6 +277,17 @@ void PPU::render_splite() {
             //     // PPUregister.ppustatus |= 1 << 6;
             // }
             sp_setpixelcolor(x, y, sp_data, sp_type);
+        }
+    }
+}
+void PPU::check_splite_hit(uint8_t x, uint8_t y) {
+    // printf("calling function at %d, %d\n", x, y);
+    uint8_t x_sp = sp_ramread(3);
+    uint8_t y_sp = sp_ramread(0);
+    if (x_sp == x && y_sp == y) {
+        printf("splite 0 hit!!!! at %d, %d\n", x, y);
+        if (((PPUregister.ppumask >> 4) & 1) && ((PPUregister.ppumask >> 4) & 1)) {
+            PPUregister.ppustatus |= 1 << 6;
         }
     }
 }
@@ -280,25 +317,27 @@ void PPU::set_scroll(uint8_t data) {
     }
 }
 
-void PPU::setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t element_table)  //ピクセルを着色
+void PPU::setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t element_table)  // ピクセルを着色
 {
     uint32_t *pixels = (uint32_t *)ScreenSurface->pixels;
-    //スプライトを描画
+    // スプライトを描画
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
             if (8 * x + i + 8 * 256 * y + 256 * j < 240 * 256) {
                 uint8_t id = ((splite_data[0][j] >> (8 - i - 1)) & 1) | (((splite_data[1][j] >> (8 - i - 1) & 1)) << 1);
-                pixels[8 * x + i + 8 * 256 * y + 256 * j] = bg_palette[(element_table >> (0x2 * (std::min(0x2, (x % uint8_t(0x4))) / 0x2 + 0x2 * (std::min(0x2, (y % 0x4)) / 0x2)))) & 0x3][id];  // sp_palette[(y % 2) << 1 + (x % 2)];+
+                uint8_t x_pixel = x * 8 - x_scroll + i;
+                if (x_pixel > 255) x_pixel %= 255;
+                pixels[x_pixel + 8 * 256 * y + 256 * j] = bg_palette[(element_table >> (0x2 * (std::min(0x2, (x % uint8_t(0x4))) / 0x2 + 0x2 * (std::min(0x2, (y % 0x4)) / 0x2)))) & 0x3][id];  // sp_palette[(y % 2) << 1 + (x % 2)];+
             }
         }
     }
 }
 
-void PPU::sp_setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t sp_type)  //ピクセルを着色
+void PPU::sp_setpixelcolor(uint8_t x, uint8_t y, std::vector<std::vector<uint8_t>> &splite_data, uint8_t sp_type)  // ピクセルを着色
 {
     const int dict[8] = {7, 6, 5, 4, 3, 2, 1, 0};
     uint32_t *pixels = (uint32_t *)ScreenSurface->pixels;
-    //スプライトを描画
+    // スプライトを描画
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
             if (x + i + 256 * y + 256 * j < 240 * 256) {

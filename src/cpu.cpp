@@ -202,7 +202,7 @@ void CPU::exec(baseName &basename, uint16_t opeland, addressingMode &mode) {
             break;
         }
         case PHP: {
-            ramwrite(CPUregisters.S, (zipP() | (1 << 4) | (1 << 5)));  //よくわからないがbreakflagを立てて入れる
+            ramwrite(CPUregisters.S, (zipP() | (1 << 4) | (1 << 5)));  // よくわからないがbreakflagを立てて入れる
             CPUregisters.S--;
             break;
         }
@@ -575,7 +575,7 @@ uint8_t CPU::ramread(uint16_t address) {
     // printf("%x\n", *(RAM + address));
     else if (address < 0x4000) {
         return vramread_cpu((address - 0x2000) % 8);
-    } else if (address == 0x4016) {  //コントローラー
+    } else if (address == 0x4016) {  // コントローラー
         return send_pad_info();
     }
     return *(RAM + address);
@@ -610,6 +610,9 @@ void CPU::ramwrite(uint16_t address, u_int8_t data) {
         if (!ppuaddr_flag) {
             ppuaddr_buffer = 0;
             ppuaddr_buffer |= (data << 8);
+            // 書き込みによる副作用
+            PPUregister.ppuctrl &= (0xFC);
+            PPUregister.ppuctrl |= ((data >> 2) & 0x03);
         } else {
             ppuaddr_buffer |= data;
             PPUregister.ppuaddr = ppuaddr_buffer;
@@ -622,7 +625,7 @@ void CPU::ramwrite(uint16_t address, u_int8_t data) {
         vramwrite(address, data);
         return;
     }
-    if (address == 0x4016) {  //コントローラー
+    if (address == 0x4016) {  // コントローラー
         pad_init(data);
         return;
     }
